@@ -61,9 +61,7 @@ public class RootMotionTransfer : MonoBehaviour
     private void Update()
     {
         Debug.Log("DrawRay");
-        Debug.DrawRay(transform.position, transform.right * axisLength, Color.red, 0f);    // X轴（红）
-        Debug.DrawRay(transform.position, transform.up * axisLength, Color.green, 0f);     // Y轴（绿）
-        Debug.DrawRay(transform.position, transform.forward * axisLength, Color.blue, 0f); // Z轴（蓝）
+        DrawDebug.DrawAxis(GameObject.Find("PF_Player(Clone)").transform.position, GameObject.Find("PF_Player(Clone)").transform, axisLength, 0.1f, Time.deltaTime, 0.02f);
     }
 
 }

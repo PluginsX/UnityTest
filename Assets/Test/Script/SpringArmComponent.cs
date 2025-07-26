@@ -4,6 +4,8 @@ using UnityEngine;
 [ExecuteInEditMode]
 public class SpringArmComponent : MonoBehaviour
 {
+    private Quaternion _rotation = Quaternion.Euler(0, 0, 0);
+
     [Header("Spring Arm Settings")]
     [Tooltip("弹簧臂目标长度")]
     public float targetArmLength = 3.0f;
@@ -30,7 +32,7 @@ public class SpringArmComponent : MonoBehaviour
     private float _currentPitch = 0f; // 当前Pitch角度
     private Quaternion _targetRotation; // 目标旋转
 
-    
+
     private void Awake()
     {
         UserCamera = GetComponentInChildren<Camera>();

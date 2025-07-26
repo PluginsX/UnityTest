@@ -26,7 +26,7 @@ Transform:
   m_GameObject: {fileID: 1509878398827015847}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.5, z: 0}
+  m_LocalPosition: {x: 0, y: 1.35, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -54,7 +54,7 @@ MonoBehaviour:
   cameraLagSpeed: 0.2
   _pitchLimit: {x: -90, y: 90}
   _rotationSpeed: 270
-  _rotationSmoothness: 100
+  _rotationSmoothness: 10
 --- !u!1 &1833195085491426271
 GameObject:
   m_ObjectHideFlags: 0
@@ -86,7 +86,7 @@ Transform:
   m_LocalRotation: {x: -0.5, y: 0.5, z: -0.5, w: 0.5}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
+  m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 5114765928909533500}
   m_LocalEulerAnglesHint: {x: 0, y: 90, z: -90}
@@ -159,7 +159,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 0.28309423, y: 1.6281692, z: 0.069740385}
+  m_Size: {x: 0.12460858, y: 1.6281692, z: 0.069740385}
   m_Center: {x: -0.0023464188, y: -0.5046639, z: -0.000018365681}
 --- !u!54 &4533902471338250844
 Rigidbody:
@@ -231,7 +231,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 0}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -292,8 +292,6 @@ GameObject:
   - component: {fileID: 3292449844677824231}
   - component: {fileID: 2861112353933086754}
   - component: {fileID: 3873557834255809306}
-  - component: {fileID: 3380065531286448787}
-  - component: {fileID: 7726108463193090611}
   - component: {fileID: 4189953187006312088}
   m_Layer: 3
   m_Name: PF_Player
@@ -385,56 +383,6 @@ MonoBehaviour:
   rotationSpeed: 100
   acceleration: 15
   meshRoot: {fileID: 3019685444080303829}
---- !u!33 &3380065531286448787
-MeshFilter:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5417485826659174299}
-  m_Mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
---- !u!23 &7726108463193090611
-MeshRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5417485826659174299}
-  m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 2
-  m_RayTraceProcedural: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 10301, guid: 0000000000000000f000000000000000, type: 0}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 0
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 3
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_AdditionalVertexStreams: {fileID: 0}
 --- !u!114 &4189953187006312088
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -510,8 +458,7 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: -4528208898816482053, guid: b42b769bf58f71742a57055fe66ad70f,
-        type: 3}
+      objectReference: {fileID: 2100000, guid: df8f1dce9ace62a4b8d79cd99d2b0e35, type: 2}
     - target: {fileID: 919132149155446097, guid: 72a4c1ad2b81b824082ed0846183fd2b,
         type: 3}
       propertyPath: m_Name
@@ -556,8 +503,7 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: -4528208898816482053, guid: b42b769bf58f71742a57055fe66ad70f,
-        type: 3}
+      objectReference: {fileID: 2100000, guid: df8f1dce9ace62a4b8d79cd99d2b0e35, type: 2}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects:
