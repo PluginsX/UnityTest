@@ -1,0 +1,10 @@
+/.vscode/
+/Library/
+/Logs/
+/Temp/
+/UserSettings/
+/obj/
+/.git/
+*.csproj
+*.sln
+*.userprefs
