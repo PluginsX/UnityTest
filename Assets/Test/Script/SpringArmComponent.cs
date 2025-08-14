@@ -32,6 +32,8 @@ public class SpringArmComponent : MonoBehaviour
     private float _currentPitch = 0f; // 当前Pitch角度
     private Quaternion _targetRotation; // 目标旋转
 
+    private Quaternion OriginalRotation;//初始世界旋转
+    private Quaternion TargetRotation;//初始世界旋转
 
     private void Awake()
     {
@@ -49,16 +51,31 @@ public class SpringArmComponent : MonoBehaviour
         _targetRotation = transform.rotation;
     }
 
+    private void Start(){
+        //OriginalRotation = transform.rotation; // 保存初始世界旋转
+        OriginalRotation = Quaternion.identity;
+    }
+
+    private void Update()
+    {
+        // 平滑旋转
+        //transform.rotation = Quaternion.Slerp(transform.rotation, _targetRotation, _rotationSmoothness * Time.deltaTime);
+
+        transform.rotation = OriginalRotation;
+
+    }
+
     private void LateUpdate()
     {
+
         // 更新固定起点位置（如果需要跟随移动的物体）
         _fixedPivotPosition = transform.position;
+
 
         // 计算目标位置（基于固定起点和当前旋转）
         Vector3 desiredCameraPos = _fixedPivotPosition - transform.forward * _currentArmLength;
 
-        // 更新旋转
-
+        
 
         // 碰撞检测
         if (enableCollision)
@@ -109,7 +126,7 @@ public class SpringArmComponent : MonoBehaviour
         if (delta_Yaw != 0)
         {
             Quaternion yawRotation = Quaternion.AngleAxis(delta_Yaw * _rotationSpeed * Time.deltaTime, Vector3.up);
-            _targetRotation = yawRotation * _targetRotation;
+            OriginalRotation = yawRotation * OriginalRotation;
         }
 
         // 处理Pitch旋转（绕相机右轴）
@@ -126,18 +143,12 @@ public class SpringArmComponent : MonoBehaviour
             if (Mathf.Abs(actualDeltaPitch) > Mathf.Epsilon)
             {
                 Quaternion pitchRotation = Quaternion.AngleAxis(actualDeltaPitch, UserCamera.transform.right);
-                _targetRotation = pitchRotation * _targetRotation;
+                OriginalRotation = pitchRotation * OriginalRotation;
             }
         }
     }
 
-    private void Update()
-    {
-        // 平滑旋转
-        //transform.rotation = Quaternion.Slerp(transform.rotation, _targetRotation, _rotationSmoothness * Time.deltaTime);
-        transform.rotation = _targetRotation;
-        //UserCamera.transform.LookAt(_fixedPivotPosition);
-    }
+
 
     // 新增函数：直接设置旋转角度
     public void SetRotation(Vector3 angle)

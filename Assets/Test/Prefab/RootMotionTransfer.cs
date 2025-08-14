@@ -2,6 +2,7 @@ using UnityEngine;
 
 public class RootMotionTransfer : MonoBehaviour
 {
+    public Transform skeleton;
     private Transform rootBone; // 骨架的根骨骼
     private Vector3 lastRootPosition; // 上一帧的根骨骼位置
     private Vector3 initialLocalPosition; // 初始局部位置
@@ -12,10 +13,10 @@ public class RootMotionTransfer : MonoBehaviour
     private void Start()
     {
         // 查找子对象中的骨架网格体
-        Transform skeleton = transform.Find("SKM_Charactor_Standerd");
+        
         if (skeleton == null)
         {
-            Debug.LogError("未找到SKM_Charactor_Standerd子对象！");
+            Debug.LogError("未指定骨架网格体子对象！");
             return;
         }
 
