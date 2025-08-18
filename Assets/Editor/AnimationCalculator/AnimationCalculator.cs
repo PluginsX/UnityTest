@@ -21,7 +21,7 @@ public class AnimationCalculator : EditorWindow
 
     // 菜单栏和右键菜单入口
     [MenuItem("Tools/Animation/Animation Calculator")]
-    [MenuItem("Assets/Animation/Calculate Animation", false, 30)]
+    [MenuItem("Assets/Animation/Animation Calculator", false, 30)]
     private static void ShowWindow()
     {
         ShowWindowWithSelection();
@@ -310,9 +310,8 @@ public class AnimationCalculator : EditorWindow
         EditorGUILayout.HelpBox("支持数学表达式和变量:\n" +
                                "运算符: + - * / ( )\n" +
                                "规则: 动画之间只能使用 + 和 -\n" +
-                               "      动画与数字之间可以使用所有运算符\n" +
-                               "示例: (P_Walk+P_Run)*0.5\n" +
-                               "变量会被自动检测", MessageType.Info);
+                               "动画与数字之间可以使用所有运算符\n" +
+                               "示例: (Walk+Run)*0.5", MessageType.Info);
     }
 
     private void DrawCalculateButton()
