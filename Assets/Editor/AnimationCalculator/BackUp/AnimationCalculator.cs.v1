@@ -1,0 +1,949 @@
+using UnityEditor;
+using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System;
+using Object = UnityEngine.Object;
+
+public class AnimationCalculator : EditorWindow
+{
+    private List<AnimationEntry> animationEntries = new List<AnimationEntry>();
+    private List<ResultEntry> resultEntries = new List<ResultEntry>();
+    private Vector2 scrollPos;
+    private string expression = "A+B";
+    private string lastUsedPath = "Assets";
+    private float resultListHeight = EditorGUIUtility.singleLineHeight;
+    private const float maxResultListHeight = 200f;
+    private Texture2D headerTexture;
+    private bool textureLoaded = false;
+    
+    [MenuItem("Tools/Animation/Animation Calculator")]
+    private static void ShowWindow()
+    {
+        var window = GetWindow<AnimationCalculator>("Animation Calculator");
+        window.minSize = new Vector2(500, 400);
+        window.Show();
+    }
+
+    private void OnGUI()
+    {
+        HandleDragAndDrop();
+        
+        EditorGUILayout.Space();
+
+        if (!textureLoaded)
+        {
+            string scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
+            string directory = Path.GetDirectoryName(scriptPath);
+            string imagePath = Path.Combine(directory, "AnimationCalculator.png");
+            
+            headerTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(imagePath);
+            textureLoaded = true;
+        }
+        
+        if (headerTexture != null)
+        {
+            float aspectRatio = (float)headerTexture.height / headerTexture.width;
+            float imageHeight = position.width * aspectRatio;
+            
+            Rect imageRect = GUILayoutUtility.GetRect(position.width, imageHeight);
+            GUI.DrawTexture(imageRect, headerTexture, ScaleMode.ScaleToFit);
+        }
+        else
+        {
+            GUILayout.Label("Animation Calculator", EditorStyles.boldLabel);
+        }
+        EditorGUILayout.Space();
+
+        DrawAnimationList();
+        DrawExpressionEditor();
+        DrawCalculateButton();
+        DrawResultList();
+    }
+
+    #region Drag and Drop Handling
+    private void HandleDragAndDrop()
+    {
+        Rect dropArea = new Rect(0, 0, position.width, position.height);
+        Event evt = Event.current;
+
+        switch (evt.type)
+        {
+            case EventType.DragUpdated:
+                if (dropArea.Contains(evt.mousePosition))
+                {
+                    bool containsValidFiles = DragAndDrop.objectReferences.Any(IsValidDragObject);
+                    DragAndDrop.visualMode = containsValidFiles ? DragAndDropVisualMode.Copy : DragAndDropVisualMode.Rejected;
+                    evt.Use();
+                }
+                break;
+
+            case EventType.DragPerform:
+                if (dropArea.Contains(evt.mousePosition))
+                {
+                    DragAndDrop.AcceptDrag();
+                    ProcessDroppedItems(DragAndDrop.objectReferences);
+                    evt.Use();
+                }
+                break;
+        }
+    }
+
+    private bool IsValidDragObject(Object obj)
+    {
+        string path = AssetDatabase.GetAssetPath(obj);
+        return (obj is AnimationClip) || 
+               (obj is GameObject && Path.GetExtension(path).ToLower() == ".fbx") ||
+               (obj is DefaultAsset && Directory.Exists(path));
+    }
+
+    private void ProcessDroppedItems(Object[] droppedObjects)
+    {
+        foreach (var obj in droppedObjects)
+        {
+            string path = AssetDatabase.GetAssetPath(obj);
+            
+            if (obj is AnimationClip)
+            {
+                AddAnimationEntry(obj as AnimationClip);
+            }
+            else if (obj is GameObject && Path.GetExtension(path).ToLower() == ".fbx")
+            {
+                ProcessFBXFile(obj as GameObject);
+            }
+            else if (obj is DefaultAsset && Directory.Exists(path))
+            {
+                ProcessFolder(path);
+            }
+        }
+    }
+    #endregion
+
+    #region File Processing
+    private void ProcessFolder(string folderPath)
+    {
+        string dataPath = Application.dataPath;
+        string folderFullPath = Path.GetFullPath(folderPath);
+        
+        var animFiles = Directory.GetFiles(folderFullPath, "*.anim", SearchOption.AllDirectories)
+            .Where(p => !p.EndsWith(".meta"));
+        
+        foreach (var file in animFiles)
+        {
+            string relativePath = "Assets" + file.Substring(dataPath.Length);
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(relativePath);
+            if (clip != null) AddAnimationEntry(clip);
+        }
+        
+        var fbxFiles = Directory.GetFiles(folderFullPath, "*.fbx", SearchOption.AllDirectories)
+            .Where(p => !p.EndsWith(".meta"));
+        
+        foreach (var file in fbxFiles)
+        {
+            string relativePath = "Assets" + file.Substring(dataPath.Length);
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(relativePath);
+            if (fbx != null) ProcessFBXFile(fbx);
+        }
+    }
+
+    private void ProcessFBXFile(GameObject fbx)
+    {
+        string path = AssetDatabase.GetAssetPath(fbx);
+        var clips = AssetDatabase.LoadAllAssetsAtPath(path)
+            .Where(x => x is AnimationClip)
+            .Cast<AnimationClip>()
+            .Where(x => !x.name.StartsWith("preview_") && 
+                       !x.name.StartsWith("__preview__") && 
+                       !x.name.EndsWith("_preview"))
+            .ToList();
+        
+        foreach (var clip in clips)
+        {
+            AddAnimationEntry(clip, fbx.name + "_" + clip.name);
+        }
+    }
+
+    private void AddAnimationEntry(AnimationClip clip, string defaultName = null)
+    {
+        if (clip == null) return;
+        
+        if (!animationEntries.Any(x => x.clip == clip))
+        {
+            animationEntries.Add(new AnimationEntry
+            {
+                clip = clip,
+                variableName = defaultName ?? ("P_" + (animationEntries.Count + 1))
+            });
+        }
+    }
+    #endregion
+
+    #region UI Drawing
+    private void DrawAnimationList()
+    {
+        EditorGUILayout.LabelField("Animation Clips:", EditorStyles.boldLabel);
+        
+        scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(150));
+        {
+            for (int i = 0; i < animationEntries.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                {
+                    animationEntries[i].clip = EditorGUILayout.ObjectField(
+                        animationEntries[i].clip, typeof(AnimationClip), false) as AnimationClip;
+                    
+                    animationEntries[i].variableName = EditorGUILayout.TextField(
+                        animationEntries[i].variableName, GUILayout.Width(100));
+                    
+                    if (GUILayout.Button("×", GUILayout.Width(20)))
+                    {
+                        animationEntries.RemoveAt(i);
+                        i--;
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            
+            EditorGUILayout.BeginHorizontal();
+            {
+                if (GUILayout.Button("Add Clip"))
+                {
+                    var path = EditorUtility.OpenFilePanelWithFilters("Select Animation Clip", 
+                        lastUsedPath, new[] { "Animation Clip", "anim" });
+                    
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        lastUsedPath = Path.GetDirectoryName(path);
+                        string relativePath = "Assets" + path.Substring(Application.dataPath.Length);
+                        var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(relativePath);
+                        if (clip != null) AddAnimationEntry(clip);
+                    }
+                }
+                
+                if (GUILayout.Button("Add FBX"))
+                {
+                    var path = EditorUtility.OpenFilePanelWithFilters("Select FBX File", 
+                        lastUsedPath, new[] { "FBX Files", "fbx" });
+                    
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        lastUsedPath = Path.GetDirectoryName(path);
+                        string relativePath = "Assets" + path.Substring(Application.dataPath.Length);
+                        var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(relativePath);
+                        if (fbx != null) ProcessFBXFile(fbx);
+                    }
+                }
+                
+                if (GUILayout.Button("Clear All"))
+                {
+                    animationEntries.Clear();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+        EditorGUILayout.EndScrollView();
+    }
+
+    private void DrawExpressionEditor()
+    {
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Expression:", EditorStyles.boldLabel);
+        
+        expression = EditorGUILayout.TextField(expression, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+        
+        EditorGUILayout.HelpBox("Supports math expressions with variables:\n" +
+                               "Operators: + - * / ( )\n" +
+                               "Example: (P_Walk+P_Run)*0.5\n" +
+                               "Variables are auto-detected", MessageType.Info);
+    }
+
+    private void DrawCalculateButton()
+    {
+        if (GUILayout.Button("Calculate", GUILayout.Height(30)))
+        {
+            try
+            {
+                var resultClip = CalculateAnimation();
+                if (resultClip != null)
+                {
+                    resultEntries.Add(new ResultEntry
+                    {
+                        clip = resultClip,
+                        name = "Result_" + resultEntries.Count,
+                        fbxReference = null
+                    });
+                    
+                    // 更新结果列表高度
+                    resultListHeight = Mathf.Min(
+                        EditorGUIUtility.singleLineHeight * (resultEntries.Count + 1), 
+                        maxResultListHeight);
+                }
+            }
+            catch (Exception e)
+            {
+                EditorUtility.DisplayDialog("Error", e.Message, "OK");
+            }
+        }
+    }
+
+    private void DrawResultList()
+    {
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Results:", EditorStyles.boldLabel);
+        
+        // 动态调整高度的结果列表
+        if (resultEntries.Count > 0)
+        {
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(resultListHeight));
+            {
+                for (int i = 0; i < resultEntries.Count; i++)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    {
+                        resultEntries[i].name = EditorGUILayout.TextField(resultEntries[i].name);
+                        
+                        EditorGUI.BeginChangeCheck();
+                        var newFbx = EditorGUILayout.ObjectField(
+                            resultEntries[i].fbxReference, 
+                            typeof(GameObject), 
+                            false) as GameObject;
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            if (newFbx != null)
+                            {
+                                string path = AssetDatabase.GetAssetPath(newFbx);
+                                if (Path.GetExtension(path).ToLower() != ".fbx")
+                                {
+                                    EditorUtility.DisplayDialog("Error", "Only FBX files are allowed", "OK");
+                                    continue;
+                                }
+                            }
+                            resultEntries[i].fbxReference = newFbx;
+                        }
+                        
+                        if (GUILayout.Button("Save", GUILayout.Width(60)))
+                        {
+                            SaveResultClip(i);
+                        }
+                        
+                        if (GUILayout.Button("×", GUILayout.Width(20)))
+                        {
+                            resultEntries.RemoveAt(i);
+                            i--;
+                            resultListHeight = Mathf.Min(
+                                EditorGUIUtility.singleLineHeight * (resultEntries.Count + 1), 
+                                maxResultListHeight);
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+            EditorGUILayout.EndScrollView();
+        }
+        else
+        {
+            EditorGUILayout.LabelField("No results yet", EditorStyles.centeredGreyMiniLabel);
+        }
+    }
+    #endregion
+
+    #region Animation Calculation
+    private AnimationClip CalculateAnimation()
+    {
+        if (string.IsNullOrEmpty(expression))
+        {
+            throw new Exception("Expression cannot be empty");
+        }
+
+        // 检查是否是单个变量
+        var singleVar = animationEntries.FirstOrDefault(e => 
+            e.variableName == expression.Trim());
+        
+        if (singleVar != null)
+        {
+            // 直接返回该变量的Clip副本
+            var newClip = new AnimationClip();
+            EditorUtility.CopySerialized(singleVar.clip, newClip);
+            return newClip;
+        }
+
+        var parsedExpression = ParseExpression(expression);
+        if (!parsedExpression.IsValid)
+        {
+            throw new Exception(parsedExpression.ErrorMessage);
+        }
+
+        var alignedClip = AlignAnimationProperties(new AnimationCalculationContext(animationEntries));
+        var resultClip = ApplyExpressionToAnimation(alignedClip, parsedExpression);
+        
+        return resultClip;
+    }
+
+    private ParsedExpression ParseExpression(string input)
+    {
+        var result = new ParsedExpression();
+        input = input.Trim();
+        
+        try
+        {
+            int pos = 0;
+            while (pos < input.Length)
+            {
+                char c = input[pos];
+                
+                // 跳过空格
+                if (char.IsWhiteSpace(c))
+                {
+                    pos++;
+                    continue;
+                }
+                
+                // 处理括号
+                if (c == '(' || c == ')')
+                {
+                    result.Tokens.Add(new ExpressionToken {
+                        Type = c == '(' ? TokenType.OpenParen : TokenType.CloseParen,
+                        Value = c.ToString()
+                    });
+                    pos++;
+                    continue;
+                }
+                
+                // 处理运算符
+                if (IsOperator(c))
+                {
+                    result.Tokens.Add(new ExpressionToken {
+                        Type = TokenType.Operator,
+                        Value = c.ToString()
+                    });
+                    pos++;
+                    continue;
+                }
+                
+                // 处理数字
+                if (char.IsDigit(c) || c == '.')
+                {
+                    string numStr = ParseNumber(input, ref pos);
+                    result.Tokens.Add(new ExpressionToken {
+                        Type = TokenType.Number,
+                        Value = numStr
+                    });
+                    continue;
+                }
+                
+                // 处理变量名
+                if (char.IsLetter(c) || c == '_')
+                {
+                    string varName = ParseVariableName(input, ref pos);
+                    
+                    // 检查变量是否定义
+                    var clip = animationEntries.FirstOrDefault(x => x.variableName == varName)?.clip;
+                    if (clip == null)
+                    {
+                        throw new Exception($"Undefined variable: {varName}");
+                    }
+                    
+                    result.Tokens.Add(new ExpressionToken {
+                        Type = TokenType.Variable,
+                        Value = varName,
+                        Clip = clip
+                    });
+                    continue;
+                }
+                
+                throw new Exception($"Invalid character: '{c}'");
+            }
+            
+            // 验证括号匹配
+            ValidateParentheses(result.Tokens);
+            
+            // 转换为逆波兰表达式（考虑运算符优先级）
+            result.Tokens = ConvertToRPN(result.Tokens);
+            result.IsValid = true;
+        }
+        catch (Exception ex)
+        {
+            result.ErrorMessage = ex.Message;
+        }
+        
+        return result;
+    }
+
+    private string ParseNumber(string input, ref int pos)
+    {
+        int start = pos;
+        bool hasDot = false;
+        
+        while (pos < input.Length)
+        {
+            char c = input[pos];
+            
+            if (char.IsDigit(c))
+            {
+                pos++;
+            }
+            else if (c == '.' && !hasDot)
+            {
+                hasDot = true;
+                pos++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        return input.Substring(start, pos - start);
+    }
+
+    private string ParseVariableName(string input, ref int pos)
+    {
+        int start = pos;
+        
+        while (pos < input.Length)
+        {
+            char c = input[pos];
+            
+            if (char.IsLetterOrDigit(c) || c == '_')
+            {
+                pos++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        return input.Substring(start, pos - start);
+    }
+
+    private void ValidateParentheses(List<ExpressionToken> tokens)
+    {
+        int balance = 0;
+        foreach (var token in tokens)
+        {
+            if (token.Type == TokenType.OpenParen) balance++;
+            else if (token.Type == TokenType.CloseParen) balance--;
+            
+            if (balance < 0)
+            {
+                throw new Exception("Unmatched closing parenthesis");
+            }
+        }
+        
+        if (balance != 0)
+        {
+            throw new Exception("Unmatched opening parenthesis");
+        }
+    }
+
+    private List<ExpressionToken> ConvertToRPN(List<ExpressionToken> tokens)
+    {
+        var output = new List<ExpressionToken>();
+        var stack = new Stack<ExpressionToken>();
+        
+        foreach (var token in tokens)
+        {
+            switch (token.Type)
+            {
+                case TokenType.Number:
+                case TokenType.Variable:
+                    output.Add(token);
+                    break;
+                    
+                case TokenType.OpenParen:
+                    stack.Push(token);
+                    break;
+                    
+                case TokenType.CloseParen:
+                    while (stack.Count > 0 && stack.Peek().Type != TokenType.OpenParen)
+                    {
+                        output.Add(stack.Pop());
+                    }
+                    
+                    if (stack.Count == 0)
+                    {
+                        throw new Exception("Mismatched parentheses");
+                    }
+                    
+                    stack.Pop(); // 弹出开括号
+                    break;
+                    
+                case TokenType.Operator:
+                    while (stack.Count > 0 && stack.Peek().Type == TokenType.Operator && 
+                           GetOperatorPriority(stack.Peek().Value) >= GetOperatorPriority(token.Value))
+                    {
+                        output.Add(stack.Pop());
+                    }
+                    stack.Push(token);
+                    break;
+            }
+        }
+        
+        while (stack.Count > 0)
+        {
+            if (stack.Peek().Type == TokenType.OpenParen)
+            {
+                throw new Exception("Mismatched parentheses");
+            }
+            output.Add(stack.Pop());
+        }
+        
+        return output;
+    }
+
+    private bool IsOperator(char c)
+    {
+        return c == '+' || c == '-' || c == '*' || c == '/';
+    }
+
+    private int GetOperatorPriority(string op)
+    {
+        switch (op)
+        {
+            case "*":
+            case "/":
+                return 2;
+            case "+":
+            case "-":
+                return 1;
+            default:
+                return 0;
+        }
+    }
+
+    private AnimationClip AlignAnimationProperties(AnimationCalculationContext context)
+    {
+        var allBindings = new HashSet<EditorCurveBinding>();
+        var allCurves = new Dictionary<EditorCurveBinding, AnimationCurve>();
+        
+        // 收集所有动画的属性绑定
+        foreach (var entry in animationEntries.Where(e => e.clip != null))
+        {
+            var bindings = AnimationUtility.GetCurveBindings(entry.clip)
+                .Where(IsValidBinding)
+                .ToList();
+                
+            foreach (var binding in bindings)
+            {
+                allBindings.Add(binding);
+                if (!allCurves.ContainsKey(binding))
+                {
+                    allCurves[binding] = AnimationUtility.GetEditorCurve(entry.clip, binding);
+                }
+            }
+        }
+        
+        // 创建结果动画
+        var resultClip = new AnimationClip();
+        foreach (var binding in allBindings)
+        {
+            resultClip.SetCurve(binding.path, binding.type, binding.propertyName, allCurves[binding]);
+        }
+        
+        return resultClip;
+    }
+
+    private bool IsValidBinding(EditorCurveBinding binding)
+    {
+        // 只处理Transform的标准属性
+        if (binding.type != typeof(Transform)) return false;
+        
+        switch (binding.propertyName)
+        {
+            case "m_LocalPosition.x":
+            case "m_LocalPosition.y":
+            case "m_LocalPosition.z":
+            case "localEulerAngles.x":
+            case "localEulerAngles.y":
+            case "localEulerAngles.z":
+            case "m_LocalScale.x":
+            case "m_LocalScale.y":
+            case "m_LocalScale.z":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private AnimationClip ApplyExpressionToAnimation(AnimationClip alignedClip, ParsedExpression parsedExpression)
+    {
+        var resultClip = new AnimationClip();
+        var bindings = AnimationUtility.GetCurveBindings(alignedClip)
+            .Where(IsValidBinding)
+            .ToList();
+        
+        foreach (var binding in bindings)
+        {
+            var baseCurve = AnimationUtility.GetEditorCurve(alignedClip, binding);
+            var newCurve = new AnimationCurve();
+            
+            for (int i = 0; i < baseCurve.keys.Length; i++)
+            {
+                float time = baseCurve.keys[i].time;
+                float resultValue = EvaluateExpressionForFrame(parsedExpression, binding, i);
+                newCurve.AddKey(time, resultValue);
+            }
+            
+            resultClip.SetCurve(binding.path, binding.type, binding.propertyName, newCurve);
+        }
+        
+        return resultClip;
+    }
+
+    private float EvaluateExpressionForFrame(ParsedExpression expression, EditorCurveBinding binding, int frameIndex)
+    {
+        var stack = new Stack<float>();
+        
+        foreach (var token in expression.Tokens)
+        {
+            switch (token.Type)
+            {
+                case TokenType.Number:
+                    stack.Push(float.Parse(token.Value));
+                    break;
+                    
+                case TokenType.Variable:
+                    var curve = AnimationUtility.GetEditorCurve(token.Clip, binding);
+                    stack.Push(curve.keys[frameIndex].value);
+                    break;
+                    
+                case TokenType.Operator:
+                    if (stack.Count < 2)
+                    {
+                        throw new Exception($"Not enough operands for operator '{token.Value}'");
+                    }
+                    
+                    float b = stack.Pop();
+                    float a = stack.Pop();
+                    
+                    switch (token.Value)
+                    {
+                        case "+": stack.Push(a + b); break;
+                        case "-": stack.Push(a - b); break;
+                        case "*": stack.Push(a * b); break;
+                        case "/": stack.Push(a / b); break;
+                    }
+                    break;
+            }
+        }
+        
+        if (stack.Count != 1)
+        {
+            throw new Exception("Invalid expression result");
+        }
+        
+        return stack.Pop();
+    }
+    #endregion
+
+    #region Saving Results
+    private void SaveResultClip(int index)
+    {
+        if (index < 0 || index >= resultEntries.Count) return;
+        
+        var entry = resultEntries[index];
+        if (entry.clip == null) return;
+        
+        // 验证所有曲线属性是否有效
+        var bindings = AnimationUtility.GetCurveBindings(entry.clip);
+        foreach (var binding in bindings)
+        {
+            if (!IsValidBinding(binding))
+            {
+                EditorUtility.DisplayDialog("Error", 
+                    $"Cannot save animation - invalid property: {binding.propertyName}", "OK");
+                return;
+            }
+        }
+        
+        if (entry.fbxReference != null)
+        {
+            SaveAsFBX(entry);
+        }
+        else
+        {
+            SaveAsAnim(entry);
+        }
+    }
+
+    private void SaveAsAnim(ResultEntry entry)
+    {
+        string path = EditorUtility.SaveFilePanelInProject(
+            "Save Animation Clip",
+            entry.name,
+            "anim",
+            "Select save location");
+        
+        if (!string.IsNullOrEmpty(path))
+        {
+            // 创建新的Clip副本
+            var newClip = new AnimationClip();
+            EditorUtility.CopySerialized(entry.clip, newClip);
+            
+            AssetDatabase.CreateAsset(newClip, path);
+            AssetDatabase.Refresh();
+            
+            EditorUtility.DisplayDialog("Success", 
+                $"Animation clip saved to: {path}", "OK");
+        }
+    }
+
+    private void SaveAsFBX(ResultEntry entry)
+    {
+        string path = EditorUtility.SaveFilePanelInProject(
+            "Save FBX with Animation",
+            entry.name,
+            "fbx",
+            "Select save location");
+        
+        if (!string.IsNullOrEmpty(path))
+        {
+            string sourcePath = AssetDatabase.GetAssetPath(entry.fbxReference);
+            
+            // 复制FBX文件
+            if (AssetDatabase.CopyAsset(sourcePath, path))
+            {
+                // 移除原始动画Clip
+                var originalClips = AssetDatabase.LoadAllAssetsAtPath(path)
+                    .Where(x => x is AnimationClip).Cast<AnimationClip>().ToList();
+                
+                foreach (var clip in originalClips)
+                {
+                    AssetDatabase.RemoveObjectFromAsset(clip);
+                }
+                
+                // 创建匹配FBX骨架的新Clip
+                var matchedClip = MatchClipToFBX(entry.clip, entry.fbxReference);
+                matchedClip.name = entry.name;
+                
+                AssetDatabase.AddObjectToAsset(matchedClip, path);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                
+                EditorUtility.DisplayDialog("Success", 
+                    $"FBX with animation saved to: {path}", "OK");
+            }
+        }
+    }
+
+    private AnimationClip MatchClipToFBX(AnimationClip sourceClip, GameObject fbx)
+    {
+        var newClip = new AnimationClip();
+        newClip.legacy = false;
+        newClip.wrapMode = WrapMode.Loop;
+        
+        var fbxBindings = AnimationUtility.GetCurveBindings(fbx.GetComponent<Animation>()?.clip ?? new AnimationClip())
+            .Where(IsValidBinding)
+            .ToList();
+        
+        var sourceBindings = AnimationUtility.GetCurveBindings(sourceClip)
+            .Where(IsValidBinding)
+            .ToList();
+        
+        foreach (var binding in fbxBindings)
+        {
+            // 查找源Clip中是否有对应的曲线
+            var sourceBinding = sourceBindings.FirstOrDefault(b => 
+                b.path == binding.path && 
+                b.propertyName == binding.propertyName);
+            
+            if (sourceBinding != null)
+            {
+                var curve = AnimationUtility.GetEditorCurve(sourceClip, sourceBinding);
+                newClip.SetCurve(binding.path, binding.type, binding.propertyName, curve);
+            }
+            else
+            {
+                // 使用默认值
+                var defaultValue = GetDefaultValueForProperty(binding.propertyName);
+                var defaultCurve = AnimationCurve.Linear(0, defaultValue, 1, defaultValue);
+                newClip.SetCurve(binding.path, binding.type, binding.propertyName, defaultCurve);
+            }
+        }
+        
+        return newClip;
+    }
+
+    private float GetDefaultValueForProperty(string propertyName)
+    {
+        switch (propertyName)
+        {
+            case "m_LocalPosition.x":
+            case "m_LocalPosition.y":
+            case "m_LocalPosition.z":
+                return 0f;
+                
+            case "localEulerAngles.x":
+            case "localEulerAngles.y":
+            case "localEulerAngles.z":
+                return 0f;
+                
+            case "m_LocalScale.x":
+            case "m_LocalScale.y":
+            case "m_LocalScale.z":
+                return 1f;
+                
+            default:
+                return 0f;
+        }
+    }
+    #endregion
+
+    #region Data Classes
+    [Serializable]
+    private class AnimationEntry
+    {
+        public AnimationClip clip;
+        public string variableName;
+    }
+
+    [Serializable]
+    private class ResultEntry
+    {
+        public AnimationClip clip;
+        public string name;
+        public GameObject fbxReference;
+    }
+
+    private class AnimationCalculationContext
+    {
+        public Dictionary<string, AnimationClip> variableClips = new Dictionary<string, AnimationClip>();
+        
+        public AnimationCalculationContext(List<AnimationEntry> entries)
+        {
+            foreach (var entry in entries)
+            {
+                if (entry.clip != null && !string.IsNullOrEmpty(entry.variableName))
+                {
+                    variableClips[entry.variableName] = entry.clip;
+                }
+            }
+        }
+    }
+
+    private class ParsedExpression
+    {
+        public bool IsValid { get; set; }
+        public string ErrorMessage { get; set; }
+        public List<ExpressionToken> Tokens { get; set; } = new List<ExpressionToken>();
+    }
+
+    private class ExpressionToken
+    {
+        public TokenType Type { get; set; }
+        public string Value { get; set; }
+        public AnimationClip Clip { get; set; }
+    }
+
+    private enum TokenType
+    {
+        Number,
+        Variable,
+        Operator,
+        OpenParen,
+        CloseParen
+    }
+    #endregion
+}
