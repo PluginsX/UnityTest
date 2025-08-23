@@ -19,8 +19,9 @@ public class FbxClipSplitter : EditorWindow
     // 标记纹理是否已加载
     private bool textureLoaded = false;
 
-    // 在Unity菜单栏中添加菜单项
-    [MenuItem("Tools/Animation/FBX Clip Splitter")]
+    
+    [MenuItem("Tools/Animation/FBX Clip Splitter")]// 在Unity菜单栏中添加菜单项
+    [MenuItem("Assets/Animation/FBX Clip Splitter", false, 31)]// 在资源右键菜单中添加菜单项
     private static void ShowWindow()
     {
         // 获取或创建窗口实例
@@ -29,26 +30,6 @@ public class FbxClipSplitter : EditorWindow
         window.InitializeWithSelection();
         // 显示窗口
         window.Show();
-    }
-
-    // 在资源右键菜单中添加菜单项
-    [MenuItem("Assets/Animation/FBX Clip Splitter", false, 31)]
-    private static void ExtractFromContextMenu()
-    {
-        // 获取或创建窗口实例
-        var window = GetWindow<FbxClipSplitter>("FBX Clip Splitter");
-        // 使用当前选中的对象初始化窗口
-        window.InitializeWithSelection();
-        // 显示窗口
-        window.Show();
-    }
-
-    // 验证菜单项是否可用
-    [MenuItem("Assets/Animation/FBX Clip Splitter", true)]
-    private static bool ValidateExtractFromContextMenu()
-    {
-        // 只有当选中了对象时才显示菜单项
-        return Selection.activeObject != null;
     }
 
     // 绘制编辑器窗口的GUI
