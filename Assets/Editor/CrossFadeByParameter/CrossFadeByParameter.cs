@@ -13,21 +13,21 @@ public enum CompareOperator
 [System.Serializable]
 public class CrossFadeByParameter : StateMachineBehaviour
 {
-    [Header("Transition Settings")]
+    // [Header("Transition Settings")]
     public string nextStateName = "";
     public bool hasExitTime = false;
     [Range(0f, 1f)] public float exitTime = 0f;
     public bool useFixedDuration = false;
     
-    [Header("Mix Settings")]
+    // [Header("Mix Settings")]
     public float transitionOffset = 0f;
     [Min(0f)] public float transitionDuration = 0.25f;
     public AnimationCurve blendCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
     
-    [Header("Transition Control")]
+    // [Header("Transition Control")]
     public bool canBeInterrupted = true;
     
-    [Header("Conditions")]
+    // [Header("Conditions")]
     public Condition[] conditions;
     
     [System.Serializable]
