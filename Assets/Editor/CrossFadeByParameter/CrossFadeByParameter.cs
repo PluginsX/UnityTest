@@ -1,270 +1,420 @@
 using System;
-using System.Text;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 
-public enum CompareOperator 
-{ 
-    Greater,    // >
-    Less,       // <
-    Equals,     // ==
-    NotEqual    // !=
+// 比较方式枚举（与Unity原生动画条件保持一致）
+public enum AnimatorConditionMode
+{
+    If = 0,               // Bool为true
+    IfNot = 1,            // Bool为false
+    Greater = 2,          // 数值>阈值
+    Less = 3,             // 数值<阈值
+    Equals = 4,           // 数值==阈值
+    NotEqual = 5,         // 数值!=阈值
+    Trigger = 6           // Trigger被激活
 }
-/// <summary>
-/// 转换条件类
-/// </summary>
-[System.Serializable]
+
+// 条件类定义
+[Serializable]
 public class Condition
 {
-    /// <summary>
-    /// String 条件变量名
-    /// </summary>
-    public string parameter;
-    /// <summary>
-    /// CompareOperator 比较运算符
-    /// </summary>
-    public CompareOperator mode;
-    /// <summary>
-    /// 比较值
-    /// </summary>
-    public float threshold;
+    public string parameterName;          // 参数名称
+    public AnimatorConditionMode mode;    // 比较方式
+    public float threshold;               // 阈值（仅数值类型有效）
 }
 
-[System.Serializable]
+// Condition类的自定义属性绘制器（实现横向布局）
+[CustomPropertyDrawer(typeof(Condition))]
+public class ConditionDrawer : PropertyDrawer
+{
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        EditorGUI.BeginProperty(position, label, property);
+
+        // 横向布局区域划分
+        float totalWidth = position.width;
+        float paramWidth = totalWidth * 0.35f;       // 参数选择框宽度
+        float modeWidth = totalWidth * 0.3f;         // 比较方式宽度
+        float thresholdWidth = totalWidth * 0.3f;    // 阈值输入框宽度
+        float spacing = 5f;                          // 间距
+
+        // 1. 绘制参数选择框
+        SerializedProperty paramProp = property.FindPropertyRelative("parameterName");
+        Rect paramRect = new Rect(position.x, position.y, paramWidth, position.height);
+        EditorGUI.PropertyField(paramRect, paramProp, GUIContent.none);
+
+        // 2. 绘制比较方式下拉框
+        SerializedProperty modeProp = property.FindPropertyRelative("mode");
+        Rect modeRect = new Rect(paramRect.xMax + spacing, position.y, modeWidth, position.height);
+        EditorGUI.PropertyField(modeRect, modeProp, GUIContent.none);
+
+        // 3. 绘制阈值输入框（根据参数类型动态显示）
+        SerializedProperty thresholdProp = property.FindPropertyRelative("threshold");
+        Rect thresholdRect = new Rect(modeRect.xMax + spacing, position.y, thresholdWidth, position.height);
+
+        // 获取当前参数类型，决定是否显示阈值框
+        AnimatorControllerParameterType paramType = GetParameterType(property);
+        if (paramType == AnimatorControllerParameterType.Float ||
+            paramType == AnimatorControllerParameterType.Int)
+        {
+            EditorGUI.PropertyField(thresholdRect, thresholdProp, GUIContent.none);
+        }
+        else
+        {
+            // 非数值类型显示空白
+            EditorGUI.LabelField(thresholdRect, "");
+        }
+
+        EditorGUI.EndProperty();
+    }
+
+    // 辅助方法：获取当前参数的类型
+    private AnimatorControllerParameterType GetParameterType(SerializedProperty property)
+    {
+        // 从组件中获取可用参数列表和类型列表
+        SerializedObject parentObj = property.serializedObject;
+        SerializedProperty paramNamesProp = parentObj.FindProperty("availableParameters");
+        SerializedProperty paramTypesProp = parentObj.FindProperty("parameterTypes");
+        string currentParamName = property.FindPropertyRelative("parameterName").stringValue;
+
+        // 查找参数对应的类型
+        for (int i = 0; i < paramNamesProp.arraySize; i++)
+        {
+            if (paramNamesProp.GetArrayElementAtIndex(i).stringValue == currentParamName)
+            {
+                return (AnimatorControllerParameterType)paramTypesProp.GetArrayElementAtIndex(i).enumValueIndex;
+            }
+        }
+        return AnimatorControllerParameterType.Float;
+    }
+}
+
+// 核心组件类
+[RequireComponent(typeof(Animator))]
 public class CrossFadeByParameter : StateMachineBehaviour
 {
-    public string nextStateName = "";
-    public bool hasExitTime = false;
-    [Range(0f, 1f)] public float exitTime = 0f;
-    public bool useFixedDuration = false;
-    public float transitionOffset = 0f;
-    [Min(0f)] public float transitionDuration = 0.25f;
-    public AnimationCurve blendCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
-    public bool canBeInterrupted = true;
+    [Header("过渡目标设置")]
+    public string nextStateName = "";                  // 目标状态名称
 
+    [Header("过渡参数")]
+    public bool hasExitTime = false;                   // 是否使用退出时间
+    [Range(0f, 1f)] public float exitTime = 0.5f;      // 退出时间（0-1表示归一化时间）
+    public bool useFixedDuration = false;              // 是否使用固定持续时间
+    public float transitionOffset = 0f;                // 过渡偏移
+    [Min(0f)] public float transitionDuration = 0.25f; // 过渡持续时间
+    public AnimationCurve blendCurve = AnimationCurve.Linear(0f, 0f, 1f, 1f); // 混合曲线
+    public bool canBeInterrupted = true;               // 是否可被中断
 
-    // 转换条件列表
-    public Condition[] conditions;
-    
+    [Header("过渡条件")]
+    public Condition[] conditions;                     // 条件列表
+
+    // 编辑器用：缓存可用参数和类型
+    [HideInInspector] public string[] availableParameters;
+    [HideInInspector] public AnimatorControllerParameterType[] parameterTypes;
+
     // 内部状态变量
-    // 正在过渡中
     private bool isTransitioning = false;
-    // 过渡开始时间
     private float transitionStartTime = 0f;
-    // 当前过渡的层
     private int currentTransitionLayer = -1;
-    
-    // 当进入该状态时
+
+    // 编辑器模式下更新参数列表
+    private void OnValidate()
+    {
+        AnimatorController controller = GetCurrentAnimatorController();
+        if (controller != null)
+        {
+            UpdateParameterList(controller);
+        }
+    }
+
+    // 获取当前状态所属的Animator控制器
+    private AnimatorController GetCurrentAnimatorController()
+    {
+        if (this == null) return null;
+
+        try
+        {
+            // 通过序列化获取StateMachineBehaviour关联的控制器
+            SerializedObject serializedBehaviour = new SerializedObject(this);
+            SerializedProperty controllerProp = serializedBehaviour.FindProperty("m_Controller");
+            if (controllerProp != null && controllerProp.objectReferenceValue is AnimatorController controller)
+            {
+                return controller;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"获取Animator控制器失败: {e.Message}");
+        }
+        return null;
+    }
+
+    // 更新可用参数列表
+    private void UpdateParameterList(AnimatorController controller)
+    {
+        AnimatorControllerParameter[] parameters = controller.parameters;
+
+        // 初始化参数数组（+1留空选项）
+        availableParameters = new string[parameters.Length + 1];
+        parameterTypes = new AnimatorControllerParameterType[parameters.Length + 1];
+
+        availableParameters[0] = "";
+        parameterTypes[0] = AnimatorControllerParameterType.Float;
+
+        // 填充参数数据
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            availableParameters[i + 1] = parameters[i].name;
+            parameterTypes[i + 1] = parameters[i].type;
+        }
+    }
+
+    // 右键菜单：添加条件
+    [ContextMenu("添加条件")]
+    public void AddCondition()
+    {
+        int newLength = (conditions != null) ? conditions.Length + 1 : 1;
+        Array.Resize(ref conditions, newLength);
+        conditions[newLength - 1] = new Condition();
+    }
+
+    // 右键菜单：清除所有条件
+    [ContextMenu("清除所有条件")]
+    public void ClearConditions()
+    {
+        conditions = null;
+    }
+
+    // 状态进入时调用
     public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        UnityEngine.Debug.Log("OnStateEnter()");
-        // 重置过渡状态
         ResetTransitionState();
-        
-        // 如果没有强制混出时间
         if (!hasExitTime)
         {
-            // 检查条件和过渡
             CheckAndTransition(animator, stateInfo, layerIndex);
         }
     }
-    
-    // 进入该状态后每一帧执行
+
+    // 状态更新时调用
     public override void OnStateUpdate(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        // 正在转换
         if (isTransitioning)
         {
-            // 可以被打断
             if (canBeInterrupted)
             {
-                // 检查条件和过渡
                 CheckAndTransition(animator, stateInfo, layerIndex);
             }
             else
             {
-                // 更新过渡进程
                 UpdateTransitionProgress();
             }
             return;
         }
-        
-        // 如果有强制混出位置
+
+        // 处理退出时间逻辑
         if (hasExitTime)
         {
-            // 标准化时间，当前状态动画播放的时间
-            float normalizedTime = stateInfo.normalizedTime;
-            // 退出时间，如果启用的固定持续时间则直接使用ExitTime的值，否则就用比例X片段长度
+            float normalizedTime = stateInfo.normalizedTime % 1f; // 取模处理循环动画
             float exitThreshold = useFixedDuration ? exitTime : exitTime * stateInfo.length;
-            // 如果标准化时间>=混出时间
+
             if (normalizedTime >= exitThreshold)
             {
-                // 检查混出条件并混出
                 CheckAndTransition(animator, stateInfo, layerIndex);
             }
         }
         else
         {
-            // 检查混出条件并混出
             CheckAndTransition(animator, stateInfo, layerIndex);
         }
     }
-    
-    // 混出该状态时
+
+    // 状态退出时调用
     public override void OnStateExit(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        // 重置过渡状态
         ResetTransitionState();
     }
 
-    // 检查条件和混出
+    // 检查条件并触发过渡
     private void CheckAndTransition(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        if (string.IsNullOrEmpty(nextStateName) || conditions == null || conditions.Length == 0)
+        // 验证目标状态和条件
+        if (string.IsNullOrEmpty(nextStateName))
         {
-            Debug.Log("无法过渡：缺少目标状态或条件");
+            Debug.LogWarning("未设置目标状态名称，无法过渡");
             return;
         }
 
-        bool conditionsMet = CheckAllConditions(animator);
-        Debug.Log($"条件检查结果: {conditionsMet}");
-
-        if (conditionsMet)
+        if (conditions == null || conditions.Length == 0)
         {
-            Debug.Log($"开始过渡到: {nextStateName}");
+            Debug.LogWarning("未添加过渡条件，无法过渡");
+            return;
+        }
+
+        // 检查所有条件是否满足
+        if (CheckAllConditions(animator))
+        {
             StartTransition(animator, stateInfo, layerIndex);
         }
     }
 
-
-    // 检查所有条件
+    // 检查所有条件是否满足
     private bool CheckAllConditions(Animator animator)
     {
-        // 遍历条件列表
-        foreach (var condition in conditions)
+        foreach (Condition condition in conditions)
         {
-            // 检查单一条件
             if (!CheckSingleCondition(animator, condition))
+            {
                 return false;
+            }
         }
         return true;
     }
 
-    // 修复CheckSingleCondition方法中的Trigger处理：
+    // 检查单个条件是否满足
     private bool CheckSingleCondition(Animator animator, Condition condition)
     {
-        if (string.IsNullOrEmpty(condition.parameter))
+        // 空参数直接返回false
+        if (string.IsNullOrEmpty(condition.parameterName))
+        {
             return false;
+        }
 
-        // 获取参数类型
-        AnimatorControllerParameter param = GetAnimatorParameter(animator, condition.parameter);
-        if (param == null) return false;
+        // 获取参数信息
+        AnimatorControllerParameter param = Array.Find(animator.parameters, p => p.name == condition.parameterName);
+        if (param == null)
+        {
+            Debug.LogWarning($"参数 {condition.parameterName} 不存在于Animator控制器中");
+            return false;
+        }
 
-        float currentValue = 0f;
-
+        // 根据参数类型和比较方式判断
         switch (param.type)
         {
-            case AnimatorControllerParameterType.Float:
-                currentValue = animator.GetFloat(condition.parameter);
-                break;
-            case AnimatorControllerParameterType.Int:
-                currentValue = animator.GetInteger(condition.parameter);
-                break;
             case AnimatorControllerParameterType.Bool:
-                currentValue = animator.GetBool(condition.parameter) ? 1f : 0f;
-                break;
-            // 替换原来的 GetTrigger 用法
+                return CheckBoolCondition(animator.GetBool(condition.parameterName), condition.mode);
+
+            case AnimatorControllerParameterType.Int:
+                return CheckNumericCondition(animator.GetInteger(condition.parameterName), condition);
+
+            case AnimatorControllerParameterType.Float:
+                return CheckNumericCondition(animator.GetFloat(condition.parameterName), condition);
+
             case AnimatorControllerParameterType.Trigger:
-                // 旧版本用 GetBool 检测 Trigger 状态
-                bool isTriggerActive = animator.GetBool(condition.parameter);
-                if (isTriggerActive)
-                {
-                    // 手动重置重置 Trigger（关键：避免重复触发）
-                    animator.ResetTrigger(condition.parameter);
-                    return true;
-                }
-                break;
+                return CheckTriggerCondition(animator, condition.parameterName, condition.mode);
 
             default:
                 return false;
         }
+    }
 
-        // 根据比较操作符检查条件
+    // 检查布尔类型条件
+    private bool CheckBoolCondition(bool currentValue, AnimatorConditionMode mode)
+    {
+        switch (mode)
+        {
+            case AnimatorConditionMode.If:
+                return currentValue;
+            case AnimatorConditionMode.IfNot:
+                return !currentValue;
+            default:
+                // 布尔类型不支持其他比较方式
+                return false;
+        }
+    }
+
+    // 检查数值类型条件
+    private bool CheckNumericCondition(float currentValue, Condition condition)
+    {
         switch (condition.mode)
         {
-            case CompareOperator.Greater:
+            case AnimatorConditionMode.Greater:
                 return currentValue > condition.threshold;
-            case CompareOperator.Less:
+            case AnimatorConditionMode.Less:
                 return currentValue < condition.threshold;
-            case CompareOperator.Equals:
+            case AnimatorConditionMode.Equals:
                 return Mathf.Approximately(currentValue, condition.threshold);
-            case CompareOperator.NotEqual:
+            case AnimatorConditionMode.NotEqual:
                 return !Mathf.Approximately(currentValue, condition.threshold);
             default:
+                // 数值类型不支持If/IfNot/Trigger
                 return false;
         }
     }
 
-    // 根据参数名从Animator获取参数
-    private AnimatorControllerParameter GetAnimatorParameter(Animator animator, string paramName)
+    // 检查触发器类型条件
+    private bool CheckTriggerCondition(Animator animator, string parameterName, AnimatorConditionMode mode)
     {
-        // 遍历所有参数
-        foreach (var param in animator.parameters)
+        if (mode != AnimatorConditionMode.Trigger)
         {
-            // 对比变量名
-            if (param.name == paramName)
-                return param;
+            return false;
         }
-        // 否则为空
-        return null;
+
+        // 检测Trigger是否被激活（旧版本兼容方式）
+        bool isTriggered = animator.GetBool(parameterName);
+        if (isTriggered)
+        {
+            // 触发后立即重置，避免重复触发
+            animator.ResetTrigger(parameterName);
+            return true;
+        }
+        return false;
     }
-    
+
     // 开始过渡
     private void StartTransition(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        if (isTransitioning) return;
-        
+        if (isTransitioning)
+        {
+            return;
+        }
+
         isTransitioning = true;
         transitionStartTime = Time.time;
         currentTransitionLayer = layerIndex;
-        
-        // 调用CrossFade(目标状态名，过渡时间，动画层序号，目标动画起始偏移)
-        animator.CrossFade(nextStateName, transitionDuration, layerIndex, transitionOffset);
+
+        // 执行交叉淡入过渡（按位置传递参数，兼容所有版本） 
+        animator.CrossFade(
+            nextStateName,          // 第一个参数：目标状态名称
+            transitionDuration,     // 第二个参数：过渡持续时间（fadeLength）
+            layerIndex,             // 第三个参数：层索引
+            transitionOffset        // 第四个参数：归一化时间偏移
+        );
     }
-    
 
     // 更新过渡进度
     private void UpdateTransitionProgress()
     {
-        // 如果有正在进行的过渡则不执行
-        if (!isTransitioning) return;
-        // 获取过渡进度
+        if (!isTransitioning)
+        {
+            return;
+        }
+
         float progress = GetTransitionProgress();
-        // 过渡进度>=1 表示完成进度
         if (progress >= 1f)
         {
-            // 重置转换状态
             ResetTransitionState();
         }
     }
-    
-    // 重置转换状态
+
+    // 重置过渡状态
     private void ResetTransitionState()
     {
-        // 是否正在过渡中
         isTransitioning = false;
-        // 过渡开始时间
         transitionStartTime = 0f;
-        // 当前过渡所处的动画层
         currentTransitionLayer = -1;
     }
-    
-    // 获取CrossFade过渡进度
+
+    // 获取过渡进度（0-1）
     private float GetTransitionProgress()
     {
-        if (!isTransitioning) return 0f;
-        // 混出持续的时间 = 当前状态播放总时长 - 混出开始时间
-        float elapsed = Time.time - transitionStartTime;
-        // Mathf.Clamp01(vf)作用是将一个浮点数限制在0到1的范围内
-        return Mathf.Clamp01(elapsed / transitionDuration);
+        if (!isTransitioning || transitionDuration <= 0)
+        {
+            return 0f;
+        }
+
+        float elapsedTime = Time.time - transitionStartTime;
+        return Mathf.Clamp01(elapsedTime / transitionDuration);
     }
 }

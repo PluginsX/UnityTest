@@ -562,27 +562,27 @@ public class AnimatorControllerExporter : EditorWindow
         return conditions;
     }
 
-    // 新增：格式化条件显示
+    // 修复：格式化条件显示
     private string FormatCondition(AnimatorCondition condition)
     {
-        string mode = GetConditionModeDisplay(condition.mode);
+        string mode = GetConditionModeDisplay(condition.mode); // 这里的condition.mode是UnityEditor.Animations.AnimatorConditionMode类型
         string parameter = condition.parameter;
         string threshold = condition.threshold.ToString("F2");
-        
+
         return $"{parameter} {mode} {threshold}";
     }
 
-    // 新增：获取条件模式的显示文本
-    private string GetConditionModeDisplay(AnimatorConditionMode mode)
+    // 修复：指定完整命名空间
+    private string GetConditionModeDisplay(UnityEditor.Animations.AnimatorConditionMode mode)
     {
         switch (mode)
         {
-            case AnimatorConditionMode.If: return "==";
-            case AnimatorConditionMode.IfNot: return "!=";
-            case AnimatorConditionMode.Greater: return ">";
-            case AnimatorConditionMode.Less: return "<";
-            case AnimatorConditionMode.Equals: return "==";
-            case AnimatorConditionMode.NotEqual: return "!=";
+            case UnityEditor.Animations.AnimatorConditionMode.If: return "==";
+            case UnityEditor.Animations.AnimatorConditionMode.IfNot: return "!=";
+            case UnityEditor.Animations.AnimatorConditionMode.Greater: return ">";
+            case UnityEditor.Animations.AnimatorConditionMode.Less: return "<";
+            case UnityEditor.Animations.AnimatorConditionMode.Equals: return "==";
+            case UnityEditor.Animations.AnimatorConditionMode.NotEqual: return "!=";
             default: return mode.ToString();
         }
     }
